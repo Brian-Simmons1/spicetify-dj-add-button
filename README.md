@@ -4,7 +4,6 @@ A [Spicetify](https://spicetify.app) extension that brings back the **Save to Li
 
 ![preview](preview.png)
 
-
 ## The problem
 
 When you play Spotify's AI DJ, the `+` / heart button next to the track title disappears from the playbar. To save a song you like, you have to open the queue or the track's context menu, which is awkward while the song is playing.
