@@ -4,7 +4,6 @@ A [Spicetify](https://spicetify.app) extension that brings back the **Save to Li
 
 ![preview](preview.png)
 
-> `preview.png` is a placeholder. Replace it with a screenshot of the button in the playbar during a DJ session.
 
 ## The problem
 
