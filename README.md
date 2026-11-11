@@ -2,7 +2,7 @@
 
 A [Spicetify](https://spicetify.app) extension that brings back the **Save to Liked Songs / Add to Playlist** button in the Spotify desktop playbar when Spotify hides it, as it does during **AI DJ** sessions.
 
-![preview](preview.png)
+![DJ Add Button: the button in the playbar, unsaved and saved](docs/banner.png)
 
 ## The problem
 
