@@ -216,15 +216,12 @@
 		const wasSaved = saved;
 		renderSaved(!wasSaved); // optimistic
 
+		// No success toast: LibraryAPI.add/remove already trigger Spotify's own
+		// "Added to / Removed from Liked Songs" notification.
 		try {
 			const library = Spicetify.Platform.LibraryAPI;
-			if (wasSaved) {
-				await library.remove({ uris: [uri] });
-				Spicetify.showNotification("Removed from Liked Songs");
-			} else {
-				await library.add({ uris: [uri] });
-				Spicetify.showNotification("Added to Liked Songs");
-			}
+			if (wasSaved) await library.remove({ uris: [uri] });
+			else await library.add({ uris: [uri] });
 		} catch (err) {
 			console.error(TAG, "Failed to update Liked Songs", err);
 			if (uri === currentUri) renderSaved(wasSaved);

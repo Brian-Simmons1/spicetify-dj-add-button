@@ -14,7 +14,7 @@ When you play Spotify's AI DJ, the `+` / heart button next to the track title di
 
 - **Appears only when it's needed.** The button shows up next to the track title only when a real music track (`spotify:track:…`) is playing *and* Spotify's own `+` button is missing. During regular playback, it stays hidden.
 - **Hides during DJ voice segments, ads and podcasts.** It only appears for tracks you can actually save.
-- **Left-click:** save the track to Liked Songs, or remove it. The icon switches between `+` and a green check, and a toast confirms the change.
+- **Left-click:** save the track to Liked Songs, or remove it. The icon switches between `+` and a green check, and Spotify shows its usual confirmation.
 - **Right-click:** open a filterable list of your playlists and add the current track to one of them.
 - **Stays in sync:** if you like or unlike the track somewhere else in the app, the button updates.
 - **No build step.** `djAddButton.js` is plain JavaScript and runs as-is.
