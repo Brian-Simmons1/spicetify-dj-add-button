@@ -1,7 +1,7 @@
 // NAME: DJ Add Button
 // AUTHOR: Brian-Simmons1
 // DESCRIPTION: Restores the "Save to Liked Songs / Add to Playlist" button in the playbar when Spotify hides it (e.g. during AI DJ sessions).
-// VERSION: 1.0.0
+// VERSION: 1.1.0
 
 (async function djAddButton() {
 	"use strict";
@@ -10,7 +10,7 @@
 	const ready = () =>
 		Spicetify?.Player?.data !== undefined &&
 		Spicetify?.Platform?.LibraryAPI &&
-		Spicetify?.Playbar?.Widget &&
+		Spicetify?.SVGIcons &&
 		Spicetify?.showNotification &&
 		Spicetify?.PopupModal;
 
@@ -22,15 +22,13 @@
 	const TAG = "[djAddButton]";
 	const MARKER = "data-dj-add-button"; // marks our element so native detection ignores it
 	const DJ_CONTEXT_URI = "spotify:playlist:37i9dQZF1EYkqdzj48dyYq";
-	const WIDGET_SELECTOR = ".main-nowPlayingWidget-nowPlaying";
 
-	// Spotify has shipped the native "+" / heart under several markups; match any of them.
-	const NATIVE_BUTTON_SELECTORS = [
-		'[data-testid="add-button"]',
-		"button.main-addButton-button",
-		"button.control-button-heart",
-		'button[data-encore-id="buttonTertiary"][aria-checked]',
-	].join(",");
+	// Spotify 1.2.x used `.main-nowPlayingWidget-nowPlaying`; 1.3.x uses `now-playing-widget-v2`.
+	// Spicetify's own Playbar.Widget only knows the old class, so we insert our button ourselves.
+	const WIDGET_SELECTOR = '[data-testid="now-playing-widget-v2"], .main-nowPlayingWidget-nowPlaying';
+	const TRACK_INFO_SELECTOR = ".main-nowPlayingWidget-trackInfo";
+	// Buttons in the widget that are never the native add/like button.
+	const NON_NATIVE_SELECTOR = '[data-testid="cover-art-button"], .main-nowPlayingWidget-coverArtContainer';
 
 	const ICON_UNSAVED = "plus-alt";
 	const ICON_SAVED = "check-alt-fill";
@@ -38,7 +36,7 @@
 	const LABEL_SAVED = "Remove from Liked Songs (right-click: add to playlist)";
 
 	// ---- State --------------------------------------------------------------------------------
-	let registered = false;
+	let visible = false;
 	let currentUri = null;
 	let saved = false;
 	let evalToken = 0; // guards against stale async results after a track change
@@ -46,29 +44,76 @@
 	let observer = null;
 	let debounceTimer = null;
 
+	// ---- Styles -------------------------------------------------------------------------------
+	const style = document.createElement("style");
+	style.textContent = `
+		.dj-add-button {
+			display: inline-flex; align-items: center; justify-content: center;
+			flex-shrink: 0; width: 32px; height: 32px; min-width: 32px;
+			margin-inline-start: 8px; padding: 0; border: 0; border-radius: 50%;
+			background: transparent; cursor: pointer;
+			color: var(--spice-subtext, #b3b3b3);
+		}
+		.dj-add-button:hover { color: var(--spice-text, #fff); transform: scale(1.04); }
+		.dj-add-button.is-saved, .dj-add-button.is-saved:hover { color: var(--spice-button-active, #1ed760); }
+		.dj-add-button svg { width: 16px; height: 16px; }
+	`;
+	document.head.append(style);
+
 	// ---- Button -------------------------------------------------------------------------------
-	const button = new Spicetify.Playbar.Widget(LABEL_UNSAVED, ICON_UNSAVED, onLeftClick, false, false, false);
-	button.element.setAttribute(MARKER, "");
-	button.element.addEventListener("contextmenu", (e) => {
+	const button = document.createElement("button");
+	button.type = "button";
+	button.className = "dj-add-button";
+	button.setAttribute(MARKER, "");
+	button.addEventListener("click", onLeftClick);
+	button.addEventListener("contextmenu", (e) => {
 		e.preventDefault();
 		e.stopPropagation();
 		if (currentUri) openPlaylistPicker(currentUri);
 	});
+	const tippy = Spicetify.Tippy?.(button, { content: LABEL_UNSAVED, ...Spicetify.TippyProps });
 
-	function setVisible(visible) {
-		if (visible === registered) return;
-		registered = visible;
-		visible ? button.register() : button.deregister();
+	function setIcon(name) {
+		button.innerHTML = `<svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">${Spicetify.SVGIcons[name]}</svg>`;
+	}
+
+	function setLabel(text) {
+		button.setAttribute("aria-label", text);
+		tippy ? tippy.setContent(text) : button.setAttribute("title", text);
 	}
 
 	function renderSaved(isSaved) {
 		saved = isSaved;
-		button.icon = isSaved ? ICON_SAVED : ICON_UNSAVED;
-		button.label = isSaved ? LABEL_SAVED : LABEL_UNSAVED;
-		button.active = isSaved;
+		setIcon(isSaved ? ICON_SAVED : ICON_UNSAVED);
+		setLabel(isSaved ? LABEL_SAVED : LABEL_UNSAVED);
+		button.classList.toggle("is-saved", isSaved);
+		button.setAttribute("aria-checked", String(isSaved));
+	}
+	renderSaved(false);
+
+	/** Put the button right after the track title/artist, re-inserting if Spotify re-rendered. */
+	function mountButton(widget) {
+		if (!widget) return;
+		const info = widget.querySelector(TRACK_INFO_SELECTOR);
+		if (info) {
+			if (info.nextElementSibling !== button) info.after(button);
+		} else if (button.parentElement !== widget) {
+			widget.append(button);
+		}
+	}
+
+	function setVisible(show, widget) {
+		if (show) mountButton(widget);
+		if (show === visible) return;
+		visible = show;
+		if (!show) button.remove();
 	}
 
 	// ---- Detection helpers --------------------------------------------------------------------
+	function getWidget() {
+		return document.querySelector(WIDGET_SELECTOR);
+	}
+
 	function getTrackUri() {
 		const uri = Spicetify.Player.data?.item?.uri;
 		return typeof uri === "string" && uri.startsWith("spotify:track:") ? uri : null;
@@ -80,16 +125,19 @@
 
 	function isShown(el) {
 		if (!el.isConnected || el.getClientRects().length === 0) return false;
-		const style = getComputedStyle(el);
-		return style.visibility !== "hidden" && style.display !== "none" && style.opacity !== "0";
+		const s = getComputedStyle(el);
+		return s.visibility !== "hidden" && s.display !== "none" && s.opacity !== "0";
 	}
 
-	/** true / false when the playbar widget is in the DOM; null when we cannot tell. */
-	function nativeButtonVisible() {
-		const widget = document.querySelector(WIDGET_SELECTOR);
-		if (!widget) return null;
-		for (const el of widget.querySelectorAll(NATIVE_BUTTON_SELECTORS)) {
-			if (el.hasAttribute(MARKER) || el.closest(`[${MARKER}]`)) continue;
+	/**
+	 * Any visible button in the now-playing widget other than the cover art (and ours) is
+	 * treated as the native add/like button. Spotify renames its classes often, so we don't
+	 * depend on a specific selector.
+	 */
+	function nativeButtonVisible(widget) {
+		for (const el of widget.querySelectorAll("button")) {
+			if (el === button || el.closest(`[${MARKER}]`) || el.matches(NON_NATIVE_SELECTOR)) continue;
+			if (el.closest(TRACK_INFO_SELECTOR)) continue; // links/buttons inside the title area
 			if (isShown(el)) return true;
 		}
 		return false;
@@ -108,23 +156,24 @@
 	// ---- Core evaluation ----------------------------------------------------------------------
 	async function evaluate() {
 		const token = ++evalToken;
-		ensureObserver();
+		const widget = getWidget();
+		ensureObserver(widget);
 
 		const uri = getTrackUri();
 		currentUri = uri;
 
 		// Not a music track (DJ voice, ad, podcast, nothing playing) -> hide.
-		if (!uri) return setVisible(false);
+		if (!uri || !widget) {
+			if (!widget && uri && isDjContext()) console.warn(TAG, "Now-playing widget not found; Spotify markup may have changed.");
+			return setVisible(false);
+		}
 
-		const native = nativeButtonVisible();
-		// If the widget isn't in the DOM yet, only show for known DJ sessions.
-		const needed = native === null ? isDjContext() : !native;
-		if (!needed) return setVisible(false);
+		if (nativeButtonVisible(widget)) return setVisible(false);
 
 		const isSaved = await isTrackSaved(uri);
 		if (token !== evalToken) return; // a newer evaluation superseded this one
 		renderSaved(isSaved);
-		setVisible(true);
+		setVisible(true, getWidget());
 	}
 
 	function scheduleEvaluate() {
@@ -133,17 +182,15 @@
 	}
 
 	// ---- DOM observation ----------------------------------------------------------------------
-	function ensureObserver() {
-		const widget = document.querySelector(WIDGET_SELECTOR);
+	function ensureObserver(widget) {
 		if (!widget || widget === observedNode) return;
 		observer?.disconnect();
 		observedNode = widget;
 		observer = new MutationObserver((mutations) => {
-			// Ignore mutations caused purely by our own button being (de)registered.
 			const relevant = mutations.some((m) => {
+				if (m.target === button || button.contains(m.target)) return false;
 				const nodes = [...m.addedNodes, ...m.removedNodes];
-				if (m.type === "childList" && nodes.length && nodes.every((n) => n === button.element)) return false;
-				if (m.type === "attributes" && m.target instanceof Element && m.target.closest(`[${MARKER}]`)) return false;
+				if (m.type === "childList" && nodes.length && nodes.every((n) => n === button)) return false;
 				return true;
 			});
 			if (relevant) scheduleEvaluate();
@@ -156,13 +203,11 @@
 		});
 	}
 
-	// Spotify sometimes re-renders the whole now-playing widget; re-attach when that happens.
+	// Spotify sometimes replaces the whole now-playing widget; re-attach and re-mount when it does.
 	setInterval(() => {
-		if (!observedNode || !observedNode.isConnected) {
-			observedNode = null;
-			scheduleEvaluate();
-		}
-	}, 2000);
+		const widget = getWidget();
+		if (widget !== observedNode || (visible && !button.isConnected)) scheduleEvaluate();
+	}, 1000);
 
 	// ---- Actions ------------------------------------------------------------------------------
 	async function onLeftClick() {
@@ -197,7 +242,7 @@
 			}
 		};
 		walk(root?.items);
-		const editable = all.filter((p) => p.isOwnedBySelf || p.isCollaborative || p.canAdd);
+		const editable = all.filter((p) => (typeof p.canAdd === "boolean" ? p.canAdd : p.isOwnedBySelf || p.isCollaborative));
 		// If Spotify renamed the ownership fields, show everything rather than nothing.
 		return editable.length ? editable : all;
 	}
@@ -280,7 +325,7 @@
 	// Keep the icon in sync when the track is liked/unliked elsewhere in the app.
 	try {
 		Spicetify.Platform.LibraryAPI.getEvents?.()?.addListener?.("operation_complete", () => {
-			if (registered) scheduleEvaluate();
+			if (visible) scheduleEvaluate();
 		});
 	} catch (err) {
 		console.warn(TAG, "LibraryAPI events unavailable", err);
