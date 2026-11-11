@@ -1,0 +1,13 @@
+[
+  {
+    "name": "DJ Add Button",
+    "description": "Restores the Save to Liked Songs / Add to Playlist button in the playbar when Spotify hides it during AI DJ sessions.",
+    "preview": "preview.png",
+    "main": "djAddButton.js",
+    "readme": "README.md",
+    "authors": [
+      { "name": "Brian-Simmons1", "url": "https://github.com/Brian-Simmons1" }
+    ],
+    "tags": ["playbar", "dj", "liked-songs", "fix"]
+  }
+]
